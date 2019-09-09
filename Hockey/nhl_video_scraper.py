@@ -41,7 +41,6 @@ class NHLVideoScraper():
 
         return games
 
-
     def download_videos(self):
         if not os.path.exists(self.path):
             self.path.mkdir()
@@ -64,7 +63,6 @@ class NHLVideoScraper():
                     except Exception as e:
                         print(e)
                         pass
-
 
 x = NHLVideoScraper()
 x.download_videos()
