@@ -36,18 +36,21 @@ class Sidebar:
                 for team in division['teamRecords']:
                     for name, abr in self.teams.items():
                         if team['team']['name'] in name:
-                            name_team = '[{}]({} "{}")'.format(name, abr[1], name)
-                            gp_team = team['gamesPlayed']
-                            wins_team = team['leagueRecord']['wins']
-                            losses_team = team['leagueRecord']['losses']
-                            otl_team = team['leagueRecord']['ot']
-                            points_team = team['points']
-                            streak_team = team['streak']['streakCode']
-                            pacific_standings += '|' + str(name_team) + '|' + str(gp_team) + '|' + str(wins_team) + \
-                                                 '|' + str(losses_team) + '|' + str(otl_team) + '|' + \
-                                                 str(points_team) + '|' + str(streak_team) + '|\n'
+                            try:
+                                name_team = '[{}]({} "{}")'.format(name, abr[1], name)
+                                gp_team = team['gamesPlayed']
+                                wins_team = team['leagueRecord']['wins']
+                                losses_team = team['leagueRecord']['losses']
+                                otl_team = team['leagueRecord']['ot']
+                                points_team = team['points']
+                                streak_team = team['streak']['streakCode']
+                                pacific_standings += '|' + str(name_team) + '|' + str(gp_team) + '|' + str(wins_team) + \
+                                                     '|' + str(losses_team) + '|' + str(otl_team) + '|' + \
+                                                     str(points_team) + '|' + str(streak_team) + '|\n'
+                            except Exception as e:
+                                pass
 
-                return pacific_standings
+        return pacific_standings
 
     def player_stats(self, player_id):
         skater_stats = []
@@ -89,28 +92,31 @@ class Sidebar:
 
         top_scorers = 'Player|GP|G|A|P|+/-|PIM|\n' + '|:|::|::|::|::|::|::|\n'
         goalies = '\n|Goalie|GP|W|L|SV%|GAA|SO|\n|:|::|::|::|::|::|::|\n'
-        skater_stats = pd.DataFrame(skater_stats, index=skater_names)
-        skater_stats = skater_stats.sort_values(by=['points', 'goals', 'games'], ascending=[False, False, True])
-        list_length = 10
-        goalie_stats = pd.DataFrame(goalie_stats, index=goalie_names)
-        goalie_stats = goalie_stats.sort_values(by=['games'], ascending=[False])
+        if skater_stats and goalie_stats:
+            skater_stats = pd.DataFrame(skater_stats, index=skater_names)
+            skater_stats = skater_stats.sort_values(by=['points', 'goals', 'games'], ascending=[False, False, True])
+            goalie_stats = pd.DataFrame(goalie_stats, index=goalie_names)
+            goalie_stats = goalie_stats.sort_values(by=['games'], ascending=[False])
 
-        for i in range(0, list_length):
-            if i < len(skater_stats.index):
-                player = skater_stats.index[i]
-                top_scorers += '|' + player + '|' + \
-                               str(skater_stats['games'][player]) + '|' + str(skater_stats['goals'][player]) + '|' + \
-                               str(skater_stats['assists'][player]) + '|**' + str(skater_stats['points'][player]) + \
-                               '**|' + str(skater_stats['plusMinus'][player]) + '|' + \
-                               str(skater_stats['penaltyMinutes'][player]) + '|\n'
-        for i in range(0, 2):
-            if i < len(goalie_stats.index):
-                goalie = goalie_stats.index[i]
-                goalies += '|' + goalie + '|' + \
-                           str(goalie_stats['games'][goalie]) + '|' + str(goalie_stats['wins'][goalie]) + '|' + \
-                           str(goalie_stats['losses'][goalie]) + '|' + str(goalie_stats['savePercentage'][goalie]) + \
-                           '|' + str(goalie_stats['goalAgainstAverage'][goalie]) + '|' + \
-                           str(goalie_stats['shutouts'][goalie]) + '|\n'
+            list_length = 10
+
+
+            for i in range(0, list_length):
+                if i < len(skater_stats.index):
+                    player = skater_stats.index[i]
+                    top_scorers += '|' + player + '|' + \
+                                   str(skater_stats['games'][player]) + '|' + str(skater_stats['goals'][player]) + '|' + \
+                                   str(skater_stats['assists'][player]) + '|**' + str(skater_stats['points'][player]) + \
+                                   '**|' + str(skater_stats['plusMinus'][player]) + '|' + \
+                                   str(skater_stats['penaltyMinutes'][player]) + '|\n'
+            for i in range(0, 2):
+                if i < len(goalie_stats.index):
+                    goalie = goalie_stats.index[i]
+                    goalies += '|' + goalie + '|' + \
+                               str(goalie_stats['games'][goalie]) + '|' + str(goalie_stats['wins'][goalie]) + '|' + \
+                               str(goalie_stats['losses'][goalie]) + '|' + str(goalie_stats['savePercentage'][goalie]) + \
+                               '|' + str(goalie_stats['goalAgainstAverage'][goalie]) + '|' + \
+                               str(goalie_stats['shutouts'][goalie]) + '|\n'
 
         comment = ('\n##Player Stats\n' + top_scorers + '\n##Goalie Stats' + goalies)
 
@@ -210,7 +216,7 @@ class Sidebar:
                          flags=re.DOTALL)
         self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].edit(sidebar)
 
-        # print(sidebar)
+        print(sidebar)
         # pyperclip.copy(sidebar)
 
 
