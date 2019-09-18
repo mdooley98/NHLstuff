@@ -208,7 +208,7 @@ class Sidebar:
     def update_sidebar(self):
         settings = self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].content_md
 
-        new_sidebar = (capfriendly.injured_reserve() + self.schedule() + self.standings() + self.player_stats(23) +
+        new_sidebar = (self.schedule() + self.standings() + self.player_stats(23) +
                        '\n*****\nUpdated at: ' + datetime.now().strftime("%d %b %Y, %I:%M %p") + ' PST\n*****')
 
         sidebar = re.sub(self.MAGICSTART + ".*?" + self.MAGICEND,
@@ -219,6 +219,21 @@ class Sidebar:
         print(sidebar)
         # pyperclip.copy(sidebar)
 
+    def update_injuries(self):
+        ir_start = '\[\]\(#startinjuredreserve\)'
+        ir_end = '\[\]\(#endinjuredreserve\)'
+        ir_start_new = '[](#startinjuredreserve)'
+        ir_end_new = '[](#endinjuredreserve)'
+
+        settings = self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].content_md
+        new_sidebar = capfriendly.injured_reserve()
+        sidebar = re.sub(ir_start + ".*?" + ir_end,
+                         ir_start_new + "\n\n" + new_sidebar + "\n\n" + ir_end_new, settings,
+                         flags=re.DOTALL)
+        self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].edit(sidebar)
+        print(sidebar)
+
 
 x = Sidebar()
 x.update_sidebar()
+# x.update_injuries()
