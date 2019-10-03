@@ -114,7 +114,7 @@ class Sidebar:
                     goalies += '|' + goalie + '|' + \
                                str(goalie_stats['games'][goalie]) + '|' + str(goalie_stats['wins'][goalie]) + '|' + \
                                str(goalie_stats['losses'][goalie]) + '|{0:.3f}|'.format(goalie_stats['savePercentage'][goalie]) + \
-                               '|{0:.2f}|'.format(goalie_stats['goalAgainstAverage'][goalie]) + \
+                               '{0:.2f}|'.format(goalie_stats['goalAgainstAverage'][goalie]) + \
                                str(goalie_stats['shutouts'][goalie]) + '|\n'
 
         comment = ('\n##Player Stats\n' + top_scorers + '\n##Goalie Stats' + goalies)
