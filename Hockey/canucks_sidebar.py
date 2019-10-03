@@ -1,9 +1,9 @@
-import requests, json, pyperclip, re, config, praw, capfriendly
+import requests, json, pyperclip, re, config, praw, capfriendly, pytz
 import pandas as pd
 from datetime import *
 from dateutil.parser import *
 from dateutil import tz
-
+import time as tm
 
 class Sidebar:
 
@@ -15,6 +15,7 @@ class Sidebar:
         self.MAGICSTARTNEW = '[](#startmagicalbotarea)'
         self.MAGICENDNEW = '[](#endmagicalbotarea)'
         self.SUBREDDIT = 'canucks'
+        self.pacific = pytz.timezone('US/Pacific')
 
     r = praw.Reddit(client_id=config.reddit_id,
                     client_secret=config.reddit_secret,
@@ -52,20 +53,19 @@ class Sidebar:
 
         return pacific_standings
 
-    def player_stats(self, player_id):
+    def player_stats(self, team_id):
         skater_stats = []
         skater_names = []
         goalie_stats = []
         goalie_names = []
 
-        url = 'https://statsapi.web.nhl.com/api/v1/teams/' + str(player_id) + '?expand=team.roster'
+        url = 'https://statsapi.web.nhl.com/api/v1/teams/{}?expand=team.roster'.format(str(team_id))
         w = requests.get(url)
         roster = json.loads(w.content.decode('utf-8'))
         w.close()
 
         for player in roster['teams'][0]['roster']['roster']:
-            url = 'https://statsapi.web.nhl.com/api/v1/people/' + str(
-                player['person']['id']) + '/stats?stats=yearByYear'
+            url = 'https://statsapi.web.nhl.com/api/v1/people/{}/stats?stats=yearByYear'.format(str(player['person']['id']))
             w = requests.get(url)
             stats = json.loads(w.content.decode('utf-8'))
             w.close()
@@ -73,8 +73,7 @@ class Sidebar:
             for season in stats['stats'][0]['splits']:
                 if season['season'] == self.SEASON:
                     if season['team']['name'] == roster['teams'][0]['name']:
-                        name = re.sub(r'(\w+.+ )', '', player['person']['fullName'], flags=re.MULTILINE)
-
+                        name = re.sub(r'(\w+\S+\s)', '', player['person']['fullName'], flags=re.MULTILINE)
                         if player['position']['code'] == 'G':
                             try:
                                 gstats = season['stat']
@@ -114,8 +113,8 @@ class Sidebar:
                     goalie = goalie_stats.index[i]
                     goalies += '|' + goalie + '|' + \
                                str(goalie_stats['games'][goalie]) + '|' + str(goalie_stats['wins'][goalie]) + '|' + \
-                               str(goalie_stats['losses'][goalie]) + '|' + str(goalie_stats['savePercentage'][goalie]) + \
-                               '|' + str(goalie_stats['goalAgainstAverage'][goalie]) + '|' + \
+                               str(goalie_stats['losses'][goalie]) + '|{0:.3f}|'.format(goalie_stats['savePercentage'][goalie]) + \
+                               '|{0:.2f}|'.format(goalie_stats['goalAgainstAverage'][goalie]) + \
                                str(goalie_stats['shutouts'][goalie]) + '|\n'
 
         comment = ('\n##Player Stats\n' + top_scorers + '\n##Goalie Stats' + goalies)
@@ -135,14 +134,18 @@ class Sidebar:
             self.SEASON)
         w = requests.get(url)
         sched_data = json.loads(w.content.decode('utf-8'))
-        sched_data = sched_data['dates']
+        reg_szn = []
+        # Removes preseason games
+        for game in sched_data['dates']:
+            if game['games'][0]['gameType'] == 'R':
+                reg_szn.append(game)
         w.close()
 
         bc_stations = ['SN', 'SN1', 'CBC', 'SNV', 'SNP', 'SN360', 'HNIC', 'CITY TV']
 
         schedule = '\n##Schedule\n|Date|Time|Opponent|TV/Score|\n|::|::|::|::|\n'
 
-        for game in sched_data:
+        for game in reg_szn:
             if parse(game['date']).date() < current_date:
                 games_before += 1
             else:
@@ -153,12 +156,12 @@ class Sidebar:
             sched_end = games_before + 3
         elif games_after < 3:
             sched_start = games_before - 3 - (3 - games_after)
-            sched_end = len(sched_data) - 1
+            sched_end = len(reg_szn) - 1
         elif games_before < 3:
             sched_start = 0
-            sched_end = 6
+            sched_end = 4
 
-        for i, game in enumerate(sched_data):
+        for i, game in enumerate(reg_szn):
             if sched_start <= i <= sched_end:
                 game_date = parse(game['date']).date()
                 game_time = parse(game['games'][0]['gameDate'])
@@ -233,7 +236,60 @@ class Sidebar:
         self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].edit(sidebar)
         print(sidebar)
 
+    def update_times(self):
+        """
+        Testing
+        Set update intervals based on necessity. If Canucks have a game that day, higher frequency updates.
+        Check if game is in progress and update quicker. Every 5 minutes? ['abstractGameState']
+        If all games are final, stop updates for the night
+
+        :return:
+        """
+        today = datetime.now(self.pacific).strftime('%Y-%m-%d')
+        base_json = ""
+
+        while True:
+            # url = 'https://statsapi.web.nhl.com/api/v1/schedule?startDate=' + today + '&endDate=' + today + '&expand=schedule.teams,schedule.linescore,schedule.broadcasts'
+            # url = 'https://statsapi.web.nhl.com/api/v1/schedule?startDate=2019-09-29&endDate=2019-09-29&expand=schedule.teams,schedule.linescore,schedule.broadcasts'
+            url = 'https://statsapi.web.nhl.com/api/v1/schedule?startDate=2019-09-26&endDate=2019-09-26&expand=schedule.teams,schedule.linescore,schedule.broadcasts'
+            games = requests.get(url).json()['dates'][0]['games']
+            sleep_time = 0
+
+            if base_json:
+                for i, game in enumerate(games):
+                    if 'vancouver canucks' in str(game).lower():
+                        if not any(item in game['status']['abstractGameState'] for item in ['Abc', 'Preview']):
+                            print('Game in progress: {} @ {}'.format(game['teams']['away']['team']['name'], game['teams']['home']['team']['name']))
+                            # Update every 5 minutes
+
+
+                    for team in game['teams']:
+
+                        # Divisional standings
+                        try:
+                            team_division = game['teams'][team]['team']['division']['name']
+                            new_status = game['status']['abstractGameState']
+                            old_status = base_json[i]['status']['abstractGameState']
+                            if team_division == 'Pacific':
+                                if new_status == 'Final' and not new_status == old_status:
+                                    print('Updating divisionial standings...')
+                                    # Update divisionial standings
+                                    print('Divisional standings updated!')
+                        except KeyError as e:
+                            pass
+
+            base_json = games
+
+            tm.sleep(sleep_time)
 
 x = Sidebar()
 x.update_sidebar()
+# x.update_times()
+# while True:
+#     try:
+#         x.update_sidebar()
+#         tm.sleep(900)
+#     except Exception as e:
+#         print(e)
+#         pass
 # x.update_injuries()

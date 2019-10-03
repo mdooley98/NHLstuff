@@ -10,7 +10,8 @@ class NHLVideoScraper:
 
     def get_game_ids(self):
         # Team game log or player game log
-        url = 'http://statsapi.web.nhl.com/api/v1/schedule?season=20172018&teamId=23&expand=schedule.broadcasts,schedule.linescore&site=en_nhlCA'
+        url = 'http://statsapi.web.nhl.com/api/v1/schedule?season=20182019&teamId=23&expand=schedule.broadcasts,schedule.linescore&site=en_nhlCA'
+        # url = 'https://statsapi.web.nhl.com/api/v1/people/{}/stats?stats=gameLog&season=20182019'.format(8477937)
         response = requests.get(url).json()
         game_ids = []
 
@@ -30,8 +31,8 @@ class NHLVideoScraper:
 
             for play in livedata['liveData']['plays']['allPlays']:
                 # Conditions for which videos you want
-                if play['result']['event'] == 'Goal' and play['result']['strength']['name'] == 'Short Handed' and not \
-                play['team']['name'] == 'Vancouver Canucks':
+                if play['result']['event'] == 'Goal' and \
+                play['players'][0]['player']['fullName'] == 'Josh Leivo':
                     event_list.append(play['about']['eventId'])
 
 
@@ -48,6 +49,7 @@ class NHLVideoScraper:
 
         for game in self.get_event_ids():
             url = 'https://statsapi.web.nhl.com/api/v1/game/{}/content'.format(game['gameId'])
+            print(url)
             content = requests.get(url).json()
             for game_id in game['eventId']:
                 for play in content['media']['milestones']['items']:
