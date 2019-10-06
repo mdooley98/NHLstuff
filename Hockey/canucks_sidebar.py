@@ -1,4 +1,4 @@
-import requests, json, pyperclip, re, config, praw, capfriendly, pytz
+import requests, json, pyperclip, re, config, praw, capfriendly, pytz, sqlite3
 import pandas as pd
 from datetime import *
 from dateutil.parser import *
@@ -237,59 +237,51 @@ class Sidebar:
         print(sidebar)
 
     def update_times(self):
-        """
-        Testing
-        Set update intervals based on necessity. If Canucks have a game that day, higher frequency updates.
-        Check if game is in progress and update quicker. Every 5 minutes? ['abstractGameState']
-        If all games are final, stop updates for the night
 
-        :return:
-        """
-        today = datetime.now(self.pacific).strftime('%Y-%m-%d')
-        base_json = ""
+        conn = sqlite3.connect('sidebar_game_ids.db')
+        c = conn.cursor()
+        c.execute("""CREATE TABLE if not exists game_ids (
+                            id text
+                            )""")
+        conn.commit()
+        date = '2019-10-02'
+        url = 'https://statsapi.web.nhl.com/api/v1/schedule?startDate={}&endDate={}&expand=schedule.teams,schedule.linescore,schedule.broadcasts'.format(date, date)
 
         while True:
-            # url = 'https://statsapi.web.nhl.com/api/v1/schedule?startDate=' + today + '&endDate=' + today + '&expand=schedule.teams,schedule.linescore,schedule.broadcasts'
-            # url = 'https://statsapi.web.nhl.com/api/v1/schedule?startDate=2019-09-29&endDate=2019-09-29&expand=schedule.teams,schedule.linescore,schedule.broadcasts'
-            url = 'https://statsapi.web.nhl.com/api/v1/schedule?startDate=2019-09-26&endDate=2019-09-26&expand=schedule.teams,schedule.linescore,schedule.broadcasts'
+            today = datetime.now(self.pacific).strftime('%Y-%m-%d')
+            url = 'https://statsapi.web.nhl.com/api/v1/schedule?startDate=' + today + '&endDate=' + today + '&expand=schedule.teams,schedule.linescore,schedule.broadcasts'
             games = requests.get(url).json()['dates'][0]['games']
-            sleep_time = 0
+            print('Scanning games for {}'.format(today))
+            for game in games:
+                game_status = game['status']['abstractGameState']
+                if 'vancouver canucks' in str(game).lower():
+                    if not any(item in game_status for item in ['Final', 'Preview']):
+                        print('Game in progress: {} @ {}'.format(game['teams']['away']['team']['name'],
+                                                                 game['teams']['home']['team']['name']))
+                if any(item == 'Pacific' for item in [game['teams']['away']['team']['division']['name'],
+                                                      game['teams']['home']['team']['division']['name']]):
+                    c.execute("SELECT id FROM game_ids WHERE id = '{}'".format(game['gamePk']))
+                    if game_status == 'Final' and not c.fetchone():
+                        print('Updating sidebar')
+                        self.update_sidebar()
+                        c.execute("INSERT INTO game_ids VALUES ('{}')".format(game['gamePk']))
+                        for i in range(0, len(games)):
+                            c.execute("SELECT id FROM game_ids WHERE id = '{}'".format(games[i]['gamePk']))
+                            if games[i]['status']['abstractGameState'] == 'Final' and not c.fetchone():
+                                print('Adding game to database: {} @ {}, {}'.format(
+                                    games[i]['teams']['away']['team']['name'],
+                                    games[i]['teams']['home']['team']['name'], games[i]['gamePk']))
+                                c.execute("INSERT INTO game_ids VALUES ('{}')".format(games[i]['gamePk']))
+                        conn.commit()
+                        break
+            tm.sleep(300)
 
-            if base_json:
-                for i, game in enumerate(games):
-                    if 'vancouver canucks' in str(game).lower():
-                        if not any(item in game['status']['abstractGameState'] for item in ['Abc', 'Preview']):
-                            print('Game in progress: {} @ {}'.format(game['teams']['away']['team']['name'], game['teams']['home']['team']['name']))
-                            # Update every 5 minutes
 
-
-                    for team in game['teams']:
-
-                        # Divisional standings
-                        try:
-                            team_division = game['teams'][team]['team']['division']['name']
-                            new_status = game['status']['abstractGameState']
-                            old_status = base_json[i]['status']['abstractGameState']
-                            if team_division == 'Pacific':
-                                if new_status == 'Final' and not new_status == old_status:
-                                    print('Updating divisionial standings...')
-                                    # Update divisionial standings
-                                    print('Divisional standings updated!')
-                        except KeyError as e:
-                            pass
-
-            base_json = games
-
-            tm.sleep(sleep_time)
 
 x = Sidebar()
-x.update_sidebar()
+# x.update_sidebar()
 # x.update_times()
 # while True:
-#     try:
-#         x.update_sidebar()
-#         tm.sleep(900)
-#     except Exception as e:
-#         print(e)
-#         pass
+#     x.update_sidebar()
+#     tm.sleep(900)
 # x.update_injuries()
