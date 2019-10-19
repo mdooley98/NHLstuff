@@ -1,8 +1,9 @@
-import requests, json, pyperclip, re, config, praw, capfriendly, pytz, sqlite3
+import requests, json, re, config, praw, capfriendly, pytz, sqlite3
 import pandas as pd
 from datetime import *
-from dateutil.parser import *
+from dateutil.parser import parse
 from dateutil import tz
+from dateutil.tz import tzlocal
 import time as tm
 
 class Sidebar:
@@ -16,6 +17,7 @@ class Sidebar:
         self.MAGICENDNEW = '[](#endmagicalbotarea)'
         self.SUBREDDIT = 'canucks'
         self.pacific = pytz.timezone('US/Pacific')
+        self.utc = pytz.timezone('UTC')
 
     r = praw.Reddit(client_id=config.reddit_id,
                     client_secret=config.reddit_secret,
@@ -54,6 +56,9 @@ class Sidebar:
         return pacific_standings
 
     def player_stats(self, team_id):
+        """
+        Different API endpoint that only accounts for stats with the Canucks (for traded players)
+        """
         skater_stats = []
         skater_names = []
         goalie_stats = []
@@ -91,16 +96,11 @@ class Sidebar:
 
         top_scorers = 'Player|GP|G|A|P|+/-|PIM|\n' + '|:|::|::|::|::|::|::|\n'
         goalies = '\n|Goalie|GP|W|L|SV%|GAA|SO|\n|:|::|::|::|::|::|::|\n'
-        if skater_stats and goalie_stats:
+        if skater_stats:
             skater_stats = pd.DataFrame(skater_stats, index=skater_names)
             skater_stats = skater_stats.sort_values(by=['points', 'goals', 'games'], ascending=[False, False, True])
-            goalie_stats = pd.DataFrame(goalie_stats, index=goalie_names)
-            goalie_stats = goalie_stats.sort_values(by=['games'], ascending=[False])
 
-            list_length = 10
-
-
-            for i in range(0, list_length):
+            for i in range(0, 10):
                 if i < len(skater_stats.index):
                     player = skater_stats.index[i]
                     top_scorers += '|' + player + '|' + \
@@ -108,6 +108,11 @@ class Sidebar:
                                    str(skater_stats['assists'][player]) + '|**' + str(skater_stats['points'][player]) + \
                                    '**|' + str(skater_stats['plusMinus'][player]) + '|' + \
                                    str(skater_stats['penaltyMinutes'][player]) + '|\n'
+
+        if goalie_stats:
+            goalie_stats = pd.DataFrame(goalie_stats, index=goalie_names)
+            goalie_stats = goalie_stats.sort_values(by=['games'], ascending=[False])
+
             for i in range(0, 2):
                 if i < len(goalie_stats.index):
                     goalie = goalie_stats.index[i]
@@ -121,9 +126,66 @@ class Sidebar:
 
         return comment
 
+    def player_stats2(self, team_id):
+        """
+        Different API endpoint that seems to update quicker, doesn't check which team the points were scored for
+        """
+        skater_stats = []
+        skater_names = []
+        goalie_stats = []
+        goalie_names = []
+
+        url = 'http://statsapi.web.nhl.com/api/v1/teams/{}?expand=team.roster,roster.person,person.stats,person.names&stats=statsSingleSeason&season=20192020'.format(team_id)
+        players = requests.get(url).json()['teams'][0]['roster']['roster']
+
+        for player in players:
+            if player['person']['stats'][0]['splits']:
+                name = re.sub(r'(\w+\S+\s)', '', player['person']['fullName'], flags=re.MULTILINE)
+                if player['person']['primaryPosition']['code'] == 'G':
+                    goalie_stats.append(player['person']['stats'][0]['splits'][0]['stat'])
+                    goalie_names.append(name)
+                elif not player['person']['primaryPosition']['code'] == 'G':
+                    skater_stats.append(player['person']['stats'][0]['splits'][0]['stat'])
+                    skater_names.append(name)
+
+        top_scorers = 'Player|GP|G|A|P|+/-|PIM|\n' + '|:|::|::|::|::|::|::|\n'
+        goalies = '\n|Goalie|GP|W|L|SV%|GAA|SO|\n|:|::|::|::|::|::|::|\n'
+        if skater_stats:
+            skater_stats = pd.DataFrame(skater_stats, index=skater_names)
+            skater_stats = skater_stats.sort_values(by=['points', 'goals', 'games'], ascending=[False, False, True])
+
+            for i in range(0, 10):
+                if i < len(skater_stats.index):
+                    player = skater_stats.index[i]
+                    top_scorers += '|' + player + '|' + \
+                                   str(skater_stats['games'][player]) + '|' + str(skater_stats['goals'][player]) + '|' + \
+                                   str(skater_stats['assists'][player]) + '|**' + str(skater_stats['points'][player]) + \
+                                   '**|' + str(skater_stats['plusMinus'][player]) + '|' + \
+                                   str(skater_stats['penaltyMinutes'][player]) + '|\n'
+
+        if goalie_stats:
+            goalie_stats = pd.DataFrame(goalie_stats, index=goalie_names)
+            goalie_stats = goalie_stats.sort_values(by=['games'], ascending=[False])
+
+            for i in range(0, 2):
+                if i < len(goalie_stats.index):
+                    goalie = goalie_stats.index[i]
+                    goalies += '|' + goalie + '|' + \
+                               str(goalie_stats['games'][goalie]) + '|' + str(goalie_stats['wins'][goalie]) + '|' + \
+                               str(goalie_stats['losses'][goalie]) + '|{0:.3f}|'.format(
+                        goalie_stats['savePercentage'][goalie]) + \
+                               '{0:.2f}|'.format(goalie_stats['goalAgainstAverage'][goalie]) + \
+                               str(goalie_stats['shutouts'][goalie]) + '|\n'
+
+        comment = ('\n##Player Stats\n' + top_scorers + '\n##Goalie Stats' + goalies)
+
+        return comment
+
     def schedule(self):
         # Few small modifications to Kurtenbot
         current_date = datetime.now().date()
+        # Skip to tomorrow
+        # current_date = current_date + timedelta(days=1)
 
         games_after = 0
         games_before = 0
@@ -211,7 +273,7 @@ class Sidebar:
     def update_sidebar(self):
         settings = self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].content_md
 
-        new_sidebar = (self.schedule() + self.standings() + self.player_stats(23) +
+        new_sidebar = (self.schedule() + self.standings() + self.player_stats2(23) +
                        '\n*****\nUpdated at: ' + datetime.now().strftime("%d %b %Y, %I:%M %p") + ' PST\n*****')
 
         sidebar = re.sub(self.MAGICSTART + ".*?" + self.MAGICEND,
@@ -220,7 +282,6 @@ class Sidebar:
         self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].edit(sidebar)
 
         print(sidebar)
-        # pyperclip.copy(sidebar)
 
     def update_injuries(self):
         ir_start = '\[\]\(#startinjuredreserve\)'
@@ -244,26 +305,46 @@ class Sidebar:
                             id text
                             )""")
         conn.commit()
-        date = '2019-10-02'
-        url = 'https://statsapi.web.nhl.com/api/v1/schedule?startDate={}&endDate={}&expand=schedule.teams,schedule.linescore,schedule.broadcasts'.format(date, date)
 
         while True:
             today = datetime.now(self.pacific).strftime('%Y-%m-%d')
-            url = 'https://statsapi.web.nhl.com/api/v1/schedule?startDate=' + today + '&endDate=' + today + '&expand=schedule.teams,schedule.linescore,schedule.broadcasts'
+            now = datetime.now(self.pacific).strftime('%Y-%m-%d, %I:%M')
+            # today = '2019-10-17'
+            url = 'https://statsapi.web.nhl.com/api/v1/schedule?startDate={}&endDate={}&expand=schedule.teams,schedule.linescore,schedule.broadcasts'.format(today, today)
             games = requests.get(url).json()['dates'][0]['games']
-            print('Scanning games for {}'.format(today))
+
+            # Update if it hasn't been updated for today's date
+            update_date = re.search('Updated at: (\d+ \w+ \d+)', self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].content_md)
+            if not update_date.group(1) == datetime.now().strftime('%d %b %Y'):
+                print('New day. Updating sidebar...')
+                self.update_sidebar()
+
+            # if games[0]['status']['abstractGameState'] == 'Preview':
+            #     gameDate = parse(games[0]['gameDate'])
+            #     now = datetime.now(tzlocal())
+            #     diff = gameDate - now
+            #     print(diff)
+            
+            print('\rScanning games for {}'.format(now), end='\n')
             for game in games:
                 game_status = game['status']['abstractGameState']
+
                 if 'vancouver canucks' in str(game).lower():
                     if not any(item in game_status for item in ['Final', 'Preview']):
                         print('Game in progress: {} @ {}'.format(game['teams']['away']['team']['name'],
                                                                  game['teams']['home']['team']['name']))
+
                 if any(item == 'Pacific' for item in [game['teams']['away']['team']['division']['name'],
                                                       game['teams']['home']['team']['division']['name']]):
                     c.execute("SELECT id FROM game_ids WHERE id = '{}'".format(game['gamePk']))
                     if game_status == 'Final' and not c.fetchone():
-                        print('Updating sidebar')
+                        print('Updating sidebar...  ' + datetime.now().strftime("%I:%M %p"))
+                        print('Game finished: {} @ {}'.format(game['teams']['away']['team']['name'],
+                                                                 game['teams']['home']['team']['name']))
+                        # Give NHL API 15 minutes to update after game ends
+                        tm.sleep(900)
                         self.update_sidebar()
+                        print('Sidebar updated at ' + datetime.now().strftime("%I:%M %p"))
                         c.execute("INSERT INTO game_ids VALUES ('{}')".format(game['gamePk']))
                         for i in range(0, len(games)):
                             c.execute("SELECT id FROM game_ids WHERE id = '{}'".format(games[i]['gamePk']))
@@ -274,14 +355,14 @@ class Sidebar:
                                 c.execute("INSERT INTO game_ids VALUES ('{}')".format(games[i]['gamePk']))
                         conn.commit()
                         break
+
             tm.sleep(300)
-
-
 
 x = Sidebar()
 # x.update_sidebar()
-# x.update_times()
+x.update_times()
 # while True:
-#     x.update_sidebar()
+#    tm.sleep(780)
+#    x.update_sidebar()
 #     tm.sleep(900)
 # x.update_injuries()
