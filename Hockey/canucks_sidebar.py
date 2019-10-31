@@ -18,6 +18,7 @@ class Sidebar:
         self.SUBREDDIT = 'canucks'
         self.pacific = pytz.timezone('US/Pacific')
         self.utc = pytz.timezone('UTC')
+        self.headers = {'User-Agent': '/r/Canucks reddit'}
 
     r = praw.Reddit(client_id=config.reddit_id,
                     client_secret=config.reddit_secret,
@@ -28,7 +29,7 @@ class Sidebar:
     def standings(self):
 
         url = 'http://statsapi.web.nhl.com/api/v1/standings?season=' + self.SEASON
-        w = requests.get(url)
+        w = requests.get(url, headers=self.headers)
         standings_data = json.loads(w.content.decode('utf-8'))
         w.close()
 
@@ -55,6 +56,61 @@ class Sidebar:
 
         return pacific_standings
 
+    def wildcard(self):
+
+        url = 'http://statsapi.web.nhl.com/api/v1/standings?season=' + self.SEASON
+        w = requests.get(url, headers=self.headers)
+        standings_data = json.loads(w.content.decode('utf-8'))
+        w.close()
+
+        wildcard = []
+        central_leaders = []
+        pacific_leaders = []
+
+        for i in range(2, 4):
+            for team in standings_data['records'][i]['teamRecords']:
+                if not team['wildCardRank'] == '0':
+                    wildcard.append(team)
+                if team['wildCardRank'] == '0':
+                    central_leaders.append(team) if standings_data['records'][i]['division']['name'] == 'Central' else pacific_leaders.append(team)
+                # print(team['team']['name'])
+
+        pacific_standings = '|PACIFIC|GP|W|L|OTL|PTS|Streak\n|::|::|::|::|::|::|::|\n'
+        central_standings = '|CENTRAL|GP|W|L|OTL|PTS|Streak\n|::|::|::|::|::|::|::|\n'
+        wildcard_standings = '|WC WEST|GP|W|L|OTL|PTS|Streak\n|::|::|::|::|::|::|::|\n'
+
+        for team in central_leaders:
+            for name, abr in self.teams.items():
+                if team['team']['name'] in name:
+                    name_team = '[{}]({} "{}")'.format(name, abr[1], name)
+                    central_standings += f"| {name_team} | {team['gamesPlayed']} | {team['leagueRecord']['wins']} | " \
+                                         f"{team['leagueRecord']['losses']} | {team['leagueRecord']['ot']} | {team['points']} | " \
+                                         f"{team['streak']['streakCode']} |\n"
+
+        for team in pacific_leaders:
+            for name, abr in self.teams.items():
+                if team['team']['name'] in name:
+                    name_team = '[{}]({} "{}")'.format(name, abr[1], name)
+                    pacific_standings += f"| {name_team} | {team['gamesPlayed']} | {team['leagueRecord']['wins']} | " \
+                                         f"{team['leagueRecord']['losses']} | {team['leagueRecord']['ot']} | {team['points']} | " \
+                                         f"{team['streak']['streakCode']} |\n"
+
+        for i in range(0, len(wildcard)):
+            for team in wildcard:
+                if team['wildCardRank'] == str(i):
+                    if i == 3:
+                        wildcard_standings += '|-|-|-|-|-|-|-|\n'
+                    for name, abr in self.teams.items():
+                        if team['team']['name'] in name:
+                            name_team = '[{}]({} "{}")'.format(name, abr[1], name)
+                            wildcard_standings += f"| {name_team} | {team['gamesPlayed']} | {team['leagueRecord']['wins']} | " \
+                                                 f"{team['leagueRecord']['losses']} | {team['leagueRecord']['ot']} | {team['points']} | " \
+                                                 f"{team['streak']['streakCode']} |\n"
+
+        standings = f'---\n{pacific_standings}---\n{central_standings}---\n{wildcard_standings}---'
+
+        return standings
+
     def player_stats(self, team_id):
         """
         Different API endpoint that only accounts for stats with the Canucks (for traded players)
@@ -65,13 +121,13 @@ class Sidebar:
         goalie_names = []
 
         url = 'https://statsapi.web.nhl.com/api/v1/teams/{}?expand=team.roster'.format(str(team_id))
-        w = requests.get(url)
+        w = requests.get(url, headers=self.headers)
         roster = json.loads(w.content.decode('utf-8'))
         w.close()
 
         for player in roster['teams'][0]['roster']['roster']:
             url = 'https://statsapi.web.nhl.com/api/v1/people/{}/stats?stats=yearByYear'.format(str(player['person']['id']))
-            w = requests.get(url)
+            w = requests.get(url, headers=self.headers)
             stats = json.loads(w.content.decode('utf-8'))
             w.close()
 
@@ -95,7 +151,7 @@ class Sidebar:
                                 pass
 
         top_scorers = 'Player|GP|G|A|P|+/-|PIM|\n' + '|:|::|::|::|::|::|::|\n'
-        goalies = '\n|Goalie|GP|W|L|SV%|GAA|SO|\n|:|::|::|::|::|::|::|\n'
+        goalies = '|Goalie|GP|W|L|SV%|GAA|SO|\n|:|::|::|::|::|::|::|\n'
         if skater_stats:
             skater_stats = pd.DataFrame(skater_stats, index=skater_names)
             skater_stats = skater_stats.sort_values(by=['points', 'goals', 'games'], ascending=[False, False, True])
@@ -122,7 +178,7 @@ class Sidebar:
                                '{0:.2f}|'.format(goalie_stats['goalAgainstAverage'][goalie]) + \
                                str(goalie_stats['shutouts'][goalie]) + '|\n'
 
-        comment = ('\n##Player Stats\n' + top_scorers + '\n##Goalie Stats' + goalies)
+        comment = ('\n' + top_scorers + '---' + goalies)
 
         return comment
 
@@ -136,7 +192,7 @@ class Sidebar:
         goalie_names = []
 
         url = 'http://statsapi.web.nhl.com/api/v1/teams/{}?expand=team.roster,roster.person,person.stats,person.names&stats=statsSingleSeason&season=20192020'.format(team_id)
-        players = requests.get(url).json()['teams'][0]['roster']['roster']
+        players = requests.get(url, headers=self.headers).json()['teams'][0]['roster']['roster']
 
         for player in players:
             if player['person']['stats'][0]['splits']:
@@ -149,7 +205,7 @@ class Sidebar:
                     skater_names.append(name)
 
         top_scorers = 'Player|GP|G|A|P|+/-|PIM|\n' + '|:|::|::|::|::|::|::|\n'
-        goalies = '\n|Goalie|GP|W|L|SV%|GAA|SO|\n|:|::|::|::|::|::|::|\n'
+        goalies = '|Goalie|GP|W|L|SV%|GAA|SO|\n|:|::|::|::|::|::|::|\n'
         if skater_stats:
             skater_stats = pd.DataFrame(skater_stats, index=skater_names)
             skater_stats = skater_stats.sort_values(by=['points', 'goals', 'games'], ascending=[False, False, True])
@@ -157,11 +213,11 @@ class Sidebar:
             for i in range(0, 10):
                 if i < len(skater_stats.index):
                     player = skater_stats.index[i]
-                    top_scorers += '|' + player + '|' + \
+                    top_scorers += player + '|' + \
                                    str(skater_stats['games'][player]) + '|' + str(skater_stats['goals'][player]) + '|' + \
                                    str(skater_stats['assists'][player]) + '|**' + str(skater_stats['points'][player]) + \
                                    '**|' + str(skater_stats['plusMinus'][player]) + '|' + \
-                                   str(skater_stats['penaltyMinutes'][player]) + '|\n'
+                                   str(skater_stats['penaltyMinutes'][player]) + '\n'
 
         if goalie_stats:
             goalie_stats = pd.DataFrame(goalie_stats, index=goalie_names)
@@ -177,7 +233,7 @@ class Sidebar:
                                '{0:.2f}|'.format(goalie_stats['goalAgainstAverage'][goalie]) + \
                                str(goalie_stats['shutouts'][goalie]) + '|\n'
 
-        comment = ('\n##Player Stats\n' + top_scorers + '\n##Goalie Stats' + goalies)
+        comment = ('---\n' + top_scorers + '---\n' + goalies)
 
         return comment
 
@@ -194,7 +250,7 @@ class Sidebar:
 
         url = 'http://statsapi.web.nhl.com/api/v1/schedule?season={}&teamId=23&expand=schedule.broadcasts,schedule.linescore&site=en_nhlCA'.format(
             self.SEASON)
-        w = requests.get(url)
+        w = requests.get(url, headers=self.headers)
         sched_data = json.loads(w.content.decode('utf-8'))
         reg_szn = []
         # Removes preseason games
@@ -205,7 +261,7 @@ class Sidebar:
 
         bc_stations = ['SN', 'SN1', 'CBC', 'SNV', 'SNP', 'SN360', 'HNIC', 'CITY TV']
 
-        schedule = '\n##Schedule\n|Date|Time|Opponent|TV/Score|\n|::|::|::|::|\n'
+        schedule = '---\n|Date|Time|Opponent|TV/Score|\n|::|::|::|::|\n'
 
         for game in reg_szn:
             if parse(game['date']).date() < current_date:
@@ -235,7 +291,12 @@ class Sidebar:
                 game_extra = ""
 
                 if game_date == current_date:
-                    game_date = '**Tonight**'
+                    check_time = game_time.strftime('%H:%M')
+                    check_time = re.sub(':', '', check_time)
+                    if int(check_time) < 1500:
+                        game_date = '**Today**'
+                    else:
+                        game_date = '**Tonight**'
                 elif game_date == current_date + timedelta(days=1):
                     game_date = 'Tomorrow'
                 else:
@@ -273,15 +334,16 @@ class Sidebar:
     def update_sidebar(self):
         settings = self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].content_md
 
-        new_sidebar = (self.schedule() + self.standings() + self.player_stats2(23) +
+        new_sidebar = (self.schedule() + self.wildcard() + self.player_stats2(23) +
                        '\n*****\nUpdated at: ' + datetime.now().strftime("%d %b %Y, %I:%M %p") + ' PST\n*****')
 
         sidebar = re.sub(self.MAGICSTART + ".*?" + self.MAGICEND,
                          self.MAGICSTARTNEW + "\n\n" + new_sidebar + "\n\n" + self.MAGICENDNEW, settings,
                          flags=re.DOTALL)
         self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].edit(sidebar)
-
-        print(sidebar)
+        print('Sidebar updated @ {}'.format(datetime.now().strftime("%I:%M %p")))
+        # print(sidebar)
+        return sidebar
 
     def update_injuries(self):
         ir_start = '\[\]\(#startinjuredreserve\)'
@@ -292,7 +354,7 @@ class Sidebar:
         settings = self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].content_md
         new_sidebar = capfriendly.injured_reserve()
         sidebar = re.sub(ir_start + ".*?" + ir_end,
-                         ir_start_new + "\n\n" + new_sidebar + "\n\n" + ir_end_new, settings,
+                         ir_start_new + "\n\n" + new_sidebar + "\n" + ir_end_new, settings,
                          flags=re.DOTALL)
         self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].edit(sidebar)
         print(sidebar)
@@ -311,12 +373,12 @@ class Sidebar:
             now = datetime.now(self.pacific).strftime('%Y-%m-%d, %I:%M')
             # today = '2019-10-17'
             url = 'https://statsapi.web.nhl.com/api/v1/schedule?startDate={}&endDate={}&expand=schedule.teams,schedule.linescore,schedule.broadcasts'.format(today, today)
-            games = requests.get(url).json()['dates'][0]['games']
+            games = requests.get(url, headers=self.headers).json()['dates'][0]['games']
 
             # Update if it hasn't been updated for today's date
             update_date = re.search('Updated at: (\d+ \w+ \d+)', self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].content_md)
             if not update_date.group(1) == datetime.now().strftime('%d %b %Y'):
-                print('New day. Updating sidebar...')
+                print('New day. Updating sidebar...\n')
                 self.update_sidebar()
 
             # if games[0]['status']['abstractGameState'] == 'Preview':
@@ -324,7 +386,7 @@ class Sidebar:
             #     now = datetime.now(tzlocal())
             #     diff = gameDate - now
             #     print(diff)
-            
+
             print('\rScanning games for {}'.format(now), end='\n')
             for game in games:
                 game_status = game['status']['abstractGameState']
@@ -338,13 +400,14 @@ class Sidebar:
                                                       game['teams']['home']['team']['division']['name']]):
                     c.execute("SELECT id FROM game_ids WHERE id = '{}'".format(game['gamePk']))
                     if game_status == 'Final' and not c.fetchone():
-                        print('Updating sidebar...  ' + datetime.now().strftime("%I:%M %p"))
-                        print('Game finished: {} @ {}'.format(game['teams']['away']['team']['name'],
-                                                                 game['teams']['home']['team']['name']))
+                        print('Updating sidebar...  {}'.format(datetime.now().strftime("%I:%M %p")))
                         # Give NHL API 15 minutes to update after game ends
                         tm.sleep(900)
                         self.update_sidebar()
-                        print('Sidebar updated at ' + datetime.now().strftime("%I:%M %p"))
+                        print('Sidebar updated at {}'.format(datetime.now().strftime("%I:%M %p")))
+                        print('Game finished: {} @ {}'.format(game['teams']['away']['team']['name'],
+                                                              game['teams']['home']['team']['name']))
+
                         c.execute("INSERT INTO game_ids VALUES ('{}')".format(game['gamePk']))
                         for i in range(0, len(games)):
                             c.execute("SELECT id FROM game_ids WHERE id = '{}'".format(games[i]['gamePk']))
@@ -358,11 +421,89 @@ class Sidebar:
 
             tm.sleep(300)
 
+    def update_times2(self):
+        """
+        UNFINISHED
+        Attempting to force an update when player stats change.
+        """
+
+        conn = sqlite3.connect('sidebar_game_ids.db')
+        c = conn.cursor()
+        c.execute("""CREATE TABLE if not exists game_ids (
+                                    id text
+                                    )""")
+        conn.commit()
+
+        while True:
+            today = datetime.now(self.pacific).strftime('%Y-%m-%d')
+            now = datetime.now(self.pacific).strftime('%Y-%m-%d, %I:%M')
+            url = 'https://statsapi.web.nhl.com/api/v1/schedule?startDate={}&endDate={}&expand=schedule.teams,schedule.linescore,schedule.broadcasts'.format(today, today)
+            games = requests.get(url, headers=self.headers).json()['dates'][0]['games']
+
+            # Update if it hasn't been updated for today's date
+            # try:
+            #     update_date = re.search('Updated at: (\d+ \w+ \d+)', self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].content_md)
+            #     if not update_date.group(1) == datetime.now().strftime('%d %b %Y'):
+            #         print('New day. Updating sidebar...')
+            #         self.update_sidebar()
+            # except AttributeError:
+            #     pass
+
+            print('\rScanning games for {}'.format(now), end='\n')
+            for game in games:
+                game_status = game['status']['abstractGameState']
+
+                c.execute("SELECT id FROM game_ids WHERE id = '{}'".format(game['gamePk']))
+                if game_status == 'Final' and not c.fetchone():
+                    if 'vancouver canucks' in str(game).lower():
+                        old_stats = self.r.subreddit(self.SUBREDDIT).wiki['config/sidebar'].content_md
+                        old_stats = re.search('(\n##Player Stats\n(.*?))\*\*\*\*\*', old_stats, flags=re.DOTALL)
+                        print('Updating sidebar... {}'.format(datetime.now().strftime("%I:%M %p")))
+                        tm.sleep(5)
+                        self.update_sidebar()
+                        print('Standings updated.\n')
+                        while True:
+                            new_stats = re.search('(\n##Player Stats\n(.*?))\*\*\*\*\*', self.update_sidebar(), flags=re.DOTALL)
+                            if not old_stats.group(1).strip() == new_stats.group(1).strip():
+                                print('New stats, updating now... {}'.format(datetime.now().strftime("%I:%M %p")))
+                                self.update_sidebar()
+                                print('Player stats updated.\n')
+                                c.execute("INSERT INTO game_ids VALUES ('{}')".format(game['gamePk']))
+                                break
+                            elif old_stats.group(1).strip() == new_stats.group(1).strip():
+                                print('Stats still match, waiting to check again... {}'.format(datetime.now().strftime("%I:%M %p")))
+                                tm.sleep(15)
+                        conn.commit()
+
+                    elif not 'canucks' in str(game).lower() and any(item == 'Pacific' for item in
+                                                                    [game['teams']['away']['team']['division']['name'],
+                                                                     game['teams']['home']['team']['division']['name']]):
+                        print('Updating sidebar...  {}'.format(datetime.now().strftime("%I:%M %p")))
+                        # Give NHL API 15 minutes to update after game ends
+                        tm.sleep(10)
+                        self.update_sidebar()
+                        print('Sidebar updated at {}\n'.format(datetime.now().strftime("%I:%M %p")))
+                        print('Game finished: {} @ {}'.format(game['teams']['away']['team']['name'],
+                                                              game['teams']['home']['team']['name']))
+
+                        c.execute("INSERT INTO game_ids VALUES ('{}')".format(game['gamePk']))
+                        for i in range(0, len(games)):
+                            c.execute("SELECT id FROM game_ids WHERE id = '{}'".format(games[i]['gamePk']))
+                            if games[i]['status']['abstractGameState'] == 'Final' and not c.fetchone() and not 'canucks'\
+                                    in str(games[i]).lower():
+                                print('Adding game to database: {} @ {}, {}'.format(
+                                    games[i]['teams']['away']['team']['name'],
+                                    games[i]['teams']['home']['team']['name'], games[i]['gamePk']))
+                                c.execute("INSERT INTO game_ids VALUES ('{}')".format(games[i]['gamePk']))
+                        # conn.commit()
+                        pass
+
+
 x = Sidebar()
 # x.update_sidebar()
 x.update_times()
-# while True:
-#    tm.sleep(780)
-#    x.update_sidebar()
-#     tm.sleep(900)
+# x.wildcard()
 # x.update_injuries()
+# while True:
+#     x.update_sidebar()
+#     tm.sleep(900)
